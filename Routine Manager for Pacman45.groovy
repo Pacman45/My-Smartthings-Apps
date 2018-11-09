@@ -1,5 +1,5 @@
 /**
- *  Rotuine Director
+ *  Routine Director
  *
  *
  *  Changelog
@@ -24,9 +24,9 @@
  */
 definition(
     name: "Routine Director",
-    namespace: "tslagle13",
-    author: "Tim Slagle",
-    description: "Monitor a set of presence sensors and activate routines based on whether your home is empty or occupied.  Each presence status change will check against the current 'sun state' to run routines based on occupancy and whether the sun is up or down.",
+    namespace: "Pacman45",
+    author: "Matt Newman",
+    description: "Monitor a set of presence sensors and activate routines based on whether your home is empty or occupied.  Each presence status change will check against the current day of week and time of day to run routines based on occupancy and day of week and time of day.",
     category: "Convenience",
     iconUrl: "http://icons.iconarchive.com/icons/icons8/ios7/512/Very-Basic-Home-Filled-icon.png",
     iconX2Url: "http://icons.iconarchive.com/icons/icons8/ios7/512/Very-Basic-Home-Filled-icon.png"
@@ -36,12 +36,17 @@ preferences {
     page(name: "selectRoutines")
 
     page(name: "Settings", title: "Settings", uninstall: true, install: true) {
-        section("False alarm threshold (defaults to 10 min)") {
+        section("False alarm thresholds (defaults to 0 mins for arrivals, 240 mins for departures)") {
             input "falseAlarmThreshold", "decimal", title: "Number of minutes", required: false
         }
 
-        section("Zip code (for sunrise/sunset)") {
+/*      section("Zip code (for sunrise/sunset)") {
             input "zip", "text", required: true
+        }  */
+
+        section("Daytime Routines Start and Stop Times") {
+            input "timeA", "time", title: "Enter daytime routine start time:"
+            input "timeB", "time", title: "Enter daytime routine stop time"
         }
 
         section("Notifications") {
@@ -101,14 +106,30 @@ def updated() {
 
 def initialize() {
     subscribe(people, "presence", presence)
-    checkSun()
-    subscribe(location, "sunrise", setSunrise)
-    subscribe(location, "sunset", setSunset)
+/*  checkSun()  ** Use absolute time instead of sunrise sunset */
+    checkDaytime()
+ /* subscribe(location, "sunrise", setSunrise)
+    subscribe(location, "sunset", setSunset)  */
+    schedule(timeA, setDaytimeModeHandler)
+    schedule(timeB, setNighttimeModeHandler)
     state.homestate = null
 }
 
+def checkDaytime() {
+    def df = new java.text.SimpleDateFormat("EEEE")
+//  Ensure the new date object is set to local time zone
+    df.setTimeZone(location.timeZone)
+    def between = timeOfDayIsBetween(settings.timeA, settings.timeB, new Date(), location.timeZone)
+
+    if (between) {
+        state.daytimeMode = "daytime"
+    }
+    else {
+        state.daytimeMode = "nighttime"
+    }
+}
 //check current sun state when installed.
-def checkSun() {
+/* def checkSun() {
     def zip = settings.zip as String
     def sunInfo = getSunriseAndSunset(zipCode: zip)
     def current = now()
@@ -121,8 +142,20 @@ def checkSun() {
         state.sunMode = "sunset"
         runIn(60,"setSunset")
     }
+}  */
+
+//change to dayTimeMode at timeA
+def setDaytimeModeHandler() {
+    state.daytimeMode = "daytime";
+    log.debug "Current time of day mode is ${state.daytimeMode}"
 }
 
+// change to nightTimeMode at timeB
+def setNightTimeModeHandler() {
+    state.daytimeMode = "nightime";
+    log.debug "Current time of day mode is ${state.daytimeMode}"
+}
+/* Not using sunrise sunset logic
 //change to sunrise mode on sunrise event
 def setSunrise(evt) {
     state.sunMode = "sunrise";
@@ -135,7 +168,7 @@ def setSunset(evt) {
     state.sunMode = "sunset";
     changeSunMode(newMode)
     log.debug "Current sun mode is ${state.sunMode}"
-}
+}   */
 
 //change mode on sun event
 def changeSunMode(newMode) {
@@ -143,7 +176,7 @@ def changeSunMode(newMode) {
 
         if (everyoneIsAway()) /*&& (state.sunMode == "sunrise")*/ {
             log.info("Home is Empty  Setting New Away Mode")
-            def delay = (falseAlarmThreshold != null && falseAlarmThreshold != "") ? falseAlarmThreshold * 60 : 10 * 60
+            def delay = (falseAlarmThreshold != null && falseAlarmThreshold != "") ? falseAlarmThreshold * 60 : 240 * 60
             setAway()
         }
 /*
@@ -169,7 +202,7 @@ def presence(evt) {
 
             if (everyoneIsAway()) {
                 log.info("Nobody is home, running away sequence")
-                def delay = (falseAlarmThreshold != null && falseAlarmThreshold != "") ? falseAlarmThreshold * 60 : 10 * 60
+                def delay = (falseAlarmThreshold != null && falseAlarmThreshold != "") ? falseAlarmThreshold * 60 : 240 * 60
                 runIn(delay, "setAway")
             }
         }
@@ -177,6 +210,7 @@ def presence(evt) {
             def lastTime = state[evt.deviceId]
             if (lastTime == null || now() - lastTime >= 1 * 60000) {
                 log.info("Someone is home, running home sequence")
+                unschedule(scheduledSetAway)
                 setHome()
             }
             state[evt.deviceId] = now()
@@ -188,7 +222,8 @@ def presence(evt) {
 //if empty set home to one of the away modes
 def setAway() {
     if (everyoneIsAway()) {
-        if (state.sunMode == "sunset") {
+        if (state.daytimeMode == "nighttime") {
+/*      if (state.sunMode == "sunset") {     ** not using sunMode in this installation  */
             def message = "Performing \"${awayNight}\" for you as requested."
             log.info(message)
             sendAway(message)
@@ -196,7 +231,8 @@ def setAway() {
             state.homestate = "away"
 
         }
-        else if (state.sunMode == "sunrise") {
+/*      else if (state.sunMode == "sunrise") {    ** not using sunMode   */
+        else if (state.daytimeMode == "daytime") {
             def message = "Performing \"${awayDay}\" for you as requested."
             log.info(message)
             sendAway(message)
@@ -213,7 +249,8 @@ def setAway() {
 def setHome() {
     log.info("Setting Home Mode!!")
     if (anyoneIsHome()) {
-        if (state.sunMode == "sunset") {
+        if (state.daytimeMode == "nighttime") {
+ /*     if (state.sunMode == "sunset") {  ** not using sunMode in this installation */
             if (state.homestate != "homeNight") {
                 def message = "Performing \"${homeNight}\" for you as requested."
                 log.info(message)
@@ -222,8 +259,8 @@ def setHome() {
                 state.homestate = "homeNight"
             }
         }
-
-        if (state.sunMode == "sunrise") {
+        if (state.daytimeMode == "daytime") {
+/*      if (state.sunMode == "sunrise") {  ** not using sunMode in this installation  */
             if (state.homestate != "homeDay") {
                 def message = "Performing \"${homeDay}\" for you as requested."
                 log.info(message)
