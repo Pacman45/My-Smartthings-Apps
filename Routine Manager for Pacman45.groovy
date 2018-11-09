@@ -65,6 +65,7 @@ preferences {
                 options: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             input "modes", "mode", title: "Only when mode is", multiple: true, required: false
         }
+        }
     }
 }
 
@@ -119,7 +120,7 @@ def checkDaytime() {
     def df = new java.text.SimpleDateFormat("EEEE")
 //  Ensure the new date object is set to local time zone
     df.setTimeZone(location.timeZone)
-    def between = timeOfDayIsBetween(settings.timeA, settings.timeB, new Date(), location.timeZone)
+    def between = timeOfDayIsBetween(timeToday(timeA, df.timeZone), timeToday(timeB, df.timeZone), new Date(), location.timeZone)
 
     if (between) {
         state.daytimeMode = "daytime"
