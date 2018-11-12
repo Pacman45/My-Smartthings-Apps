@@ -209,6 +209,8 @@ def presence(evt) {
         }
         else {
             def lastTime = state[evt.deviceId]
+            log.debug("lastTime = ${lastTime}")
+            log.debug("now minus lastTime = ${lastTime}")
             if (lastTime == null || now() - lastTime >= 1 * 60000) {
                 log.info("Someone is home, running home sequence")
                 unschedule(scheduledSetAway)
