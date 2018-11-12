@@ -67,7 +67,6 @@ preferences {
         }
         }
     }
-}
 
 def selectRoutines() {
     def configured = (settings.awayDay && settings.awayNight && settings.homeDay && settings.homeNight)
