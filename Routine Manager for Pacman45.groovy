@@ -39,7 +39,9 @@ preferences {
         section("False alarm thresholds (defaults to 0 mins for arrivals, 240 mins for departures)") {
             input "falseAlarmThreshold", "decimal", title: "Number of minutes", required: false
         }
-
+        section("Vacation Mode delay threshold (defaults to 24 hours after last departure)") {
+            input "vacationModeDelayThreshold", "decimal", title: "Number of hours", required: false
+        }
 /*      section("Zip code (for sunrise/sunset)") {
             input "zip", "text", required: true
         }  */
@@ -82,6 +84,7 @@ def selectRoutines() {
                     log.trace routines
                     input "awayDay", "enum", title: "Everyone Is Away And It's Day", required: true, options: routines, submitOnChange: true
                     input "awayNight", "enum", title: "Everyone Is Away And It's Night", required: true, options: routines, submitOnChange: true
+                    input "awayVacation", "enum", title: "Everyone is Away for Extended Amount of Time", required: true, options: routines, submitOnChange: true
                     input "homeDay", "enum", title: "At Least One Person Is Home And It's Day", required: true, options: routines, submitOnChange: true
                     input "homeNight", "enum", title: "At Least One Person Is Home And It's Night", required: true, options: routines, submitOnChange: true
                 }
@@ -113,13 +116,14 @@ def initialize() {
     schedule(timeA, setDaytimeModeHandler)
     schedule(timeB, setNighttimeModeHandler)
     state.homestate = null
+    state.setVacationAwayScheduled = false
 }
 
 def checkDaytime() {
     def df = new java.text.SimpleDateFormat("EEEE")
 //  Ensure the new date object is set to local time zone
     df.setTimeZone(location.timeZone)
-    def between = timeOfDayIsBetween(timeToday(timeA, df.timeZone), timeToday(timeB, df.timeZone), new Date(), location.timeZone)
+    def between = timeOfDayIsBetween(timeA, timeB, new Date(), location.timeZone)
 
     if (between) {
         state.daytimeMode = "daytime"
@@ -196,6 +200,7 @@ def changeSunMode(newMode) {
 
 //presence change run logic based on presence state of home
 def presence(evt) {
+    def homeMode = location.mode
     if (allOk) {
         if (evt.value == "not present") {
             log.debug("Checking if everyone is away")
@@ -203,20 +208,28 @@ def presence(evt) {
             if (everyoneIsAway()) {
                 log.info("Nobody is home, running away sequence")
                 def delay = (falseAlarmThreshold != null && falseAlarmThreshold != "") ? falseAlarmThreshold * 60 : 240 * 60
-                runIn(delay, "setAway")
+                def vacationModeDelayinSeconds = (vacationModeDelayThreshold) ? vacationModeDelayThreshold * 3600 : 24 * 3600
+                if (homeMode != "Home-Bitter Cold") {
+                    runIn(delay, setAway)
+                    runIn(vacationModeDelayinSeconds, setVacationAway) //Temps are not bitter cold, so use Vacation mode settings for extended absence
+                    state.setVacationAwayScheduled = true                //Vacation mode is scheduled to run
+                } else runIn(vacationModeDelayinSeconds, setAway)  //It is bitter cold, so set moderate away limits for Vacation Away
             }
-        }
-        else {
-            def lastTime = state[evt.deviceId]
-            log.debug("lastTime = ${lastTime}")
-            log.debug("now minus lastTime = ${lastTime}")
-            if (lastTime == null || now() - lastTime >= 1 * 60000) {
+            else {
+            //def lastTime = state[evt.deviceId]
+            //if (lastTime == null || now() - lastTime >= 1 * 60000) {
                 log.info("Someone is home, running home sequence")
                 unschedule(scheduledSetAway)
+                if (state.setVacationAwayScheduled) {
+                    unschedule(scheduledSetVacationAway)
+                    state.setVacationAwayScheduled = false
+                }
+                location.setMode("Home")
                 setHome()
-            }
-            state[evt.deviceId] = now()
+            //}
+                state[evt.deviceId] = now()
 
+            }
         }
     }
 }
@@ -245,6 +258,15 @@ def setAway() {
             log.debug("Mode is the same, not evaluating")
         }
     }
+}
+
+//if empty for extended period of time as defined by vacationModeDelayThreshold, set home to awayVacation
+def setVacationAway() {
+    def message = "Performing \"${awayVacation}\" for you as requested."
+    log.info(message)
+    sendaway(message)
+    location.helloHome.execute(settings.awayVacation)
+    state.homestate = "away"
 }
 
 //set home mode when house is occupied
