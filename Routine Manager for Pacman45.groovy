@@ -215,7 +215,7 @@ def presence(evt) {
                     state.setVacationAwayScheduled = true                //Vacation mode is scheduled to run
                 } else runIn(vacationModeDelayinSeconds, setAway)  //It is bitter cold, so set moderate away limits for Vacation Away
             }
-            else {
+        } else {
             //def lastTime = state[evt.deviceId]
             //if (lastTime == null || now() - lastTime >= 1 * 60000) {
                 log.info("Someone is home, running home sequence")
@@ -229,8 +229,8 @@ def presence(evt) {
             //}
                 state[evt.deviceId] = now()
 
-            }
         }
+        
     }
 }
 
